@@ -20,6 +20,7 @@ def rebase_on_staging() -> str:
     Returns:
         Success message with details, or error message if conflicts occur
     """
+    log("rebase_on_staging() called")
     try:
         project_dir = os.getenv("PROJECT_DIR")
         target_branch = os.getenv("TARGET_BRANCH", "staging")
@@ -197,6 +198,7 @@ def create_merge_request(title: str, description: str) -> str:
     Returns:
         A message indicating success or failure with the MR URL
     """
+    log(f"create_merge_request() called - title: '{title}'")
     try:
         # Get config from environment
         username = os.getenv("GITLAB_USERNAME")
