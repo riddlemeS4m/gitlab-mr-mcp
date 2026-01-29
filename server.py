@@ -6,6 +6,125 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("gitlab-mr-creator")
 
 @mcp.tool()
+def rebase_on_staging() -> str:
+    """
+    Rebases the current branch on top of the latest staging branch.
+    
+    Steps:
+    1. Saves current branch
+    2. Switches to staging and pulls latest
+    3. Returns to original branch
+    4. Rebases on staging
+    5. Force pushes if successful, aborts if conflicts
+    
+    Returns:
+        Success message with details, or error message if conflicts occur
+    """
+    try:
+        project_dir = os.getenv("PROJECT_DIR")
+        target_branch = os.getenv("TARGET_BRANCH", "staging")
+        
+        if not project_dir:
+            return "Error: PROJECT_DIR must be set in .env"
+        
+        os.chdir(project_dir)
+        
+        # Step 1: Get current branch name
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        current_branch = result.stdout.strip()
+        
+        if not current_branch:
+            return "Error: Could not determine current branch"
+        
+        if current_branch == target_branch:
+            return f"Error: Already on {target_branch} branch. Switch to a feature branch first."
+        
+        # Step 2: Switch to staging
+        result = subprocess.run(
+            ["git", "checkout", target_branch],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return f"Error switching to {target_branch}: {result.stderr}"
+        
+        # Step 3: Pull latest changes
+        result = subprocess.run(
+            ["git", "pull"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            # Try to switch back to original branch
+            subprocess.run(["git", "checkout", current_branch], capture_output=True)
+            return f"Error pulling {target_branch}: {result.stderr}"
+        
+        # Step 4: Switch back to original branch
+        result = subprocess.run(
+            ["git", "checkout", current_branch],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return f"Error switching back to {current_branch}: {result.stderr}"
+        
+        # Step 5: Rebase on staging
+        result = subprocess.run(
+            ["git", "rebase", target_branch],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            # Rebase failed - abort it
+            abort_result = subprocess.run(
+                ["git", "rebase", "--abort"],
+                capture_output=True,
+                text=True
+            )
+            
+            return (
+                f"❌ Rebase failed with conflicts. Rebase has been aborted.\n\n"
+                f"You'll need to manually resolve conflicts:\n"
+                f"1. Run: git rebase {target_branch}\n"
+                f"2. Resolve conflicts in your editor\n"
+                f"3. Run: git add <resolved-files>\n"
+                f"4. Run: git rebase --continue\n"
+                f"5. Run: git push --force-with-lease\n\n"
+                f"Rebase output:\n{result.stderr}"
+            )
+        
+        # Step 6: Force push with lease (only if rebase succeeded)
+        push_result = subprocess.run(
+            ["git", "push", "--force-with-lease"],
+            capture_output=True,
+            text=True
+        )
+        
+        if push_result.returncode != 0:
+            return (
+                f"⚠️ Rebase succeeded locally but push failed.\n"
+                f"Your branch is rebased on {target_branch} but not pushed.\n"
+                f"Push output: {push_result.stderr}\n\n"
+                f"Try: git push --force-with-lease"
+            )
+        
+        return (
+            f"✅ Successfully rebased {current_branch} on {target_branch} and force-pushed!\n\n"
+            f"Your branch is now up to date with the latest {target_branch} changes."
+        )
+        
+    except subprocess.CalledProcessError as e:
+        return f"Command failed: {e.stderr if e.stderr else str(e)}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+@mcp.tool()
 def health_check() -> str:
     """
     Checks if the MCP server and dependencies are working correctly.
